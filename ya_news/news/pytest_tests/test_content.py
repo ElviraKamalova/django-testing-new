@@ -1,8 +1,13 @@
+from news.forms import CommentForm
+
+
 NEWS_ON_PAGE = 10
 
 
 def test_homepage_news_count_and_order(client, news_list, home_url):
     response = client.get(home_url)
+    assert 'news_list' in response.context
+
     news_in_context = list(response.context['news_list'])
     assert len(news_in_context) == NEWS_ON_PAGE
 
@@ -35,4 +40,5 @@ def test_authorized_user_has_comment_form(detail_url, author_client):
     response = author_client.get(detail_url)
     assert 'form' in response.context
     form = response.context['form']
+    assert isinstance(response.context['form'], CommentForm)
     assert hasattr(form, 'fields')

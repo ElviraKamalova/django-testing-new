@@ -7,6 +7,11 @@ import pytest
 from news.models import Comment, News
 
 
+@pytest.fixture(autouse=True)
+def db_access(db):
+    pass
+
+
 @pytest.fixture
 def author(django_user_model, db):
     return django_user_model.objects.create(username='Автор комментария')
@@ -44,14 +49,12 @@ def news_list(db):
     NEWS_ON_PAGE = 10
     base_date = timezone.now()
     News.objects.bulk_create(
-        [
-            News(
-                title=f'Новость {index}',
-                text='Текст тестовой новости',
-                date=base_date - timedelta(days=(NEWS_ON_PAGE - index))
-            )
-            for index in range(NEWS_ON_PAGE + 1)
-        ]
+        News(
+            title=f'Новость {index}',
+            text='Текст тестовой новости',
+            date=base_date - timedelta(days=NEWS_ON_PAGE - index)
+        )
+        for index in range(NEWS_ON_PAGE + 1)
     )
     return list(News.objects.all())
 
@@ -102,3 +105,13 @@ def comment_edit_url(comment):
 @pytest.fixture
 def comment_delete_url(comment):
     return reverse('news:delete', kwargs={'pk': comment.pk})
+
+
+@pytest.fixture
+def login_url():
+    return reverse('users:login')
+
+
+@pytest.fixture
+def logout_url():
+    return reverse('users:logout')

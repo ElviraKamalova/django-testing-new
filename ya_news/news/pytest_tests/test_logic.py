@@ -1,3 +1,4 @@
+from django.urls import reverse
 from http import HTTPStatus
 import pytest
 
@@ -9,6 +10,11 @@ def test_anonymous_user_cant_create_comment(client, detail_url):
     form_data = {'text': 'Текст анонимного комментария'}
     response = client.post(detail_url, data=form_data)
     assert response.status_code == HTTPStatus.FOUND
+
+    login_url = reverse('users:login')
+    expected_redirect_url = f'{login_url}?next={detail_url}'
+    assert response.url == expected_redirect_url
+
     assert Comment.objects.count() == initial_count
 
 
@@ -18,9 +24,10 @@ def test_authorized_user_can_create_comment(
         news,
         detail_url
 ):
+    initial_ids = list(Comment.objects.values_list('id', flat=True))
     initial_count = Comment.objects.count()
     form_data = {'text': 'Текст комментария'}
-    expected_redirect_url = detail_url + '#comments'
+    expected_redirect_url = f'{detail_url}#comments'
 
     response = author_client.post(detail_url, data=form_data)
 
@@ -28,7 +35,10 @@ def test_authorized_user_can_create_comment(
     assert response.url == expected_redirect_url
     assert Comment.objects.count() == initial_count + 1
 
-    new_comment = Comment.objects.latest('id')
+    new_comments_queryset = Comment.objects.exclude(id__in=initial_ids)
+
+    new_comment = new_comments_queryset.first()
+    assert new_comments_queryset.count() == 1
     assert new_comment.text == form_data['text']
     assert new_comment.author == author
     assert new_comment.news == news
@@ -66,15 +76,20 @@ def test_author_can_edit_comment(
     detail_url
 ):
     form_data = {'text': 'Обновленный текст комментария'}
-    expected_redirect_url = detail_url + '#comments'
+    expected_redirect_url = f'{detail_url}#comments'
+
+    comments_count_before = Comment.objects.count()
 
     response = author_client.post(comment_edit_url, data=form_data)
 
+    comments_count_after = Comment.objects.count()
+
     assert response.status_code == HTTPStatus.FOUND
     assert response.url == expected_redirect_url
+    assert comments_count_before == comments_count_after
 
-    comment.refresh_from_db()
-    assert comment.text == form_data['text']
+    updated_comment = Comment.objects.get(pk=comment.pk)
+    assert updated_comment.text == form_data['text']
     assert comment.author == author
     assert comment.news == news
 
@@ -82,40 +97,42 @@ def test_author_can_edit_comment(
 def test_author_can_delete_comment(
     author_client,
     comment_delete_url,
-    detail_url
+    detail_url,
+    comment
 ):
     initial_count = Comment.objects.count()
-    expected_redirect_url = detail_url + '#comments'
+    comment_id = comment.pk
 
+    expected_redirect_url = f'{detail_url}#comments'
     response = author_client.post(comment_delete_url)
 
     assert response.status_code == HTTPStatus.FOUND
     assert response.url == expected_redirect_url
-
     assert Comment.objects.count() == initial_count - 1
+    assert not Comment.objects.filter(pk=comment_id).exists()
 
 
-def test_reader_cant_edit_comment(
+@pytest.mark.parametrize(
+    'url_fixture, data',
+    [
+        ('comment_edit_url', {'text': 'Изменить чужой комментарий'}),
+        ('comment_delete_url', None),
+    ]
+)
+def test_reader_cant_edit_or_delete_comment(
     reader_client,
     comment,
-    comment_edit_url
+    url_fixture,
+    data,
+    request
 ):
-    form_data = {'text': 'Изменить чужой комментарий'}
-
-    response = reader_client.post(comment_edit_url, data=form_data)
-
+    url = request.getfixturevalue(url_fixture)
+    response = reader_client.post(url, data=data)
     assert response.status_code == HTTPStatus.NOT_FOUND
 
-    comment.refresh_from_db()
-    assert comment.text != form_data['text']
-
-
-def test_reader_cant_delete_comment(
-    reader_client,
-    comment_delete_url
-):
-    initial_count = Comment.objects.count()
-    response = reader_client.post(comment_delete_url)
-
-    assert response.status_code == HTTPStatus.NOT_FOUND
-    assert Comment.objects.count() == initial_count
+    if data:
+        assert not Comment.objects.filter(
+            pk=comment.pk,
+            text=data['text']).exists()
+    else:
+        assert Comment.objects.filter(pk=comment.pk).exists()
